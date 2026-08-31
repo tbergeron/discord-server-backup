@@ -18,13 +18,13 @@ const conversation: RenderConversation = {
   pages: ["index.html", "page-0002.html"],
 };
 
-const context: RenderContext = { root: "/tmp/archive", guildName: "Example Guild", conversations: [conversation] };
+const context: RenderContext = { root: "/tmp/archive", guildId: "123", guildName: "Example Guild", conversations: [conversation], messageLinks: new Map([["123456789012345678:444", "channels/0001-general--123456789012345678/page-0002.html"]]) };
 const message: NormalizedMessage = {
   id: "999999999999999999",
   channelId: conversation.id,
   timestamp: "2026-08-30T12:00:00.000Z",
   editedTimestamp: null,
-  content: "Hello <script>alert(1)</script>",
+  content: "Hello <script>alert(1)</script> https://discord.com/channels/123/123456789012345678/444",
   author: { id: "1", name: "Ada", username: "ada", avatarPath: null, isBot: false },
   attachments: [{ id: "2", filename: "photo.png", contentType: "image/png", size: 10, sha256: "abc", localPath: `${conversation.outputDir}/attachments/999999999999999999/2--photo.png`, sourceUrl: "https://cdn.discordapp.com/example", status: "downloaded" }],
   replyTo: null,
@@ -41,4 +41,5 @@ test("channel renderer emits safe local attachment links and part navigation", (
   assert.match(html, /id="message-999999999999999999"/);
   assert.match(html, /data-sidebar-toggle/);
   assert.match(html, /archive-sidebar/);
+  assert.match(html, /page-0002\.html#message-444/);
 });

@@ -73,3 +73,5 @@ The report is written for both successful and partially successful exports. It c
 ## Compatibility
 
 Version 1 readers should require only fields documented above, preserve ID strings, and ignore unknown fields. Archives are static and self-contained; no network request is required to read stored messages or downloaded attachments.
+
+When rendering HTML, Discord message URLs that point to this archive's guild and to an exported message are rewritten to the matching local HTML page and `#message-<id>` anchor. Links to another server or to an unavailable message remain external Discord URLs.

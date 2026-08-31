@@ -8,8 +8,11 @@ export interface RenderConversation extends ConversationRecord {
 
 export interface RenderContext {
   root: string;
+  guildId: string;
   conversations: RenderConversation[];
   guildName: string;
+  /** `${channelId}:${messageId}` -> archive-root-relative HTML file */
+  messageLinks: Map<string, string>;
 }
 
 function link(fromDir: string, root: string, target: string): string {
@@ -52,6 +55,13 @@ function attachmentHtml(message: NormalizedMessage, fromDir: string, root: strin
   return `<div class="attachments">${items}</div>`;
 }
 
+function localDiscordMessageHref(url: string, currentDirectory: string, context: RenderContext): string | null {
+  const match = url.match(/^https:\/\/(?:(?:ptb|canary)\.)?discord(?:app)?\.com\/channels\/(\d+)\/(\d+)\/(\d+)(?:[?#].*)?$/);
+  if (!match || match[1] !== context.guildId) return null;
+  const target = context.messageLinks.get(`${match[2]}:${match[3]}`);
+  return target ? `${link(currentDirectory, context.root, target)}#message-${match[3]}` : null;
+}
+
 function embedHtml(message: NormalizedMessage): string {
   return message.embeds.map((embed) => {
     const title = embed.title ? `<strong>${escapeHtml(embed.title)}</strong>` : "";
@@ -68,7 +78,7 @@ function messageHtml(message: NormalizedMessage, fromDir: string, context: Rende
   const edited = message.editedTimestamp ? " <span class=\"edited\">(edited)</span>" : "";
   const reactions = message.reactions.length ? `<div class="reactions">${message.reactions.map((reaction) => `<span>${escapeHtml(reaction.name)} ${reaction.count}</span>`).join("")}</div>` : "";
   const avatar = message.author.avatarPath ? `<span class="avatar" style="background-image:url('${escapeHtml(link(fromDir, context.root, message.author.avatarPath))}')"></span>` : `<span class="avatar initial">${escapeHtml(message.author.name.slice(0, 1).toUpperCase())}</span>`;
-  return `<article class="message" id="message-${escapeHtml(message.id)}">${avatar}<div class="message-body">${reply}<header><strong>${escapeHtml(message.author.name)}</strong>${message.author.isBot ? " <span class=\"bot-tag\">BOT</span>" : ""}<time datetime="${escapeHtml(message.timestamp)}">${escapeHtml(new Date(message.timestamp).toLocaleString())}</time>${edited}</header><div class="content">${renderText(message.content)}</div>${embedHtml(message)}${attachmentHtml(message, fromDir, context.root)}${reactions}</div></article>`;
+  return `<article class="message" id="message-${escapeHtml(message.id)}">${avatar}<div class="message-body">${reply}<header><strong>${escapeHtml(message.author.name)}</strong>${message.author.isBot ? " <span class=\"bot-tag\">BOT</span>" : ""}<time datetime="${escapeHtml(message.timestamp)}">${escapeHtml(new Date(message.timestamp).toLocaleString())}</time>${edited}</header><div class="content">${renderText(message.content, (url) => localDiscordMessageHref(url, fromDir, context))}</div>${embedHtml(message)}${attachmentHtml(message, fromDir, context.root)}${reactions}</div></article>`;
 }
 
 export function renderConversationPage(context: RenderContext, conversation: RenderConversation, pageIndex: number, messages: NormalizedMessage[]): string {

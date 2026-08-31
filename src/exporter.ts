@@ -180,7 +180,7 @@ export async function exportGuild(options: ExportOptions): Promise<ArchiveManife
   log("Fetching guild metadata.");
   const guild = await client.getGuild(options.guildId);
   const guildName = typeof guild.name === "string" ? guild.name : options.guildId;
-  const context: RenderContext = { root: options.output, guildName, conversations: checkpoint.conversations ?? [] };
+  const context: RenderContext = { root: options.output, guildId: options.guildId, guildName, conversations: checkpoint.conversations ?? [], messageLinks: new Map() };
   await writeText(path.join(options.output, "assets", "style.css"), STYLE_CSS);
   await writeText(path.join(options.output, "assets", "viewer.js"), VIEWER_JS);
   log("Wrote static viewer assets.");
@@ -220,6 +220,7 @@ export async function exportGuild(options: ExportOptions): Promise<ArchiveManife
       const raw = JSON.parse(await readFile(path.join(options.output, conversation.outputDir, `messages-${String(page + 1).padStart(6, "0")}.json`), "utf8")) as { messages: Array<{ normalized: NormalizedMessage }> };
       for (const item of raw.messages) {
         const text = item.normalized.content;
+        context.messageLinks.set(`${item.normalized.channelId}:${item.normalized.id}`, path.posix.join(conversation.outputDir, conversation.pages[page]));
         search.push({ id: item.normalized.id, channel: conversation.name, author: item.normalized.author.name, text: text.toLowerCase(), excerpt: text.slice(0, 180), path: path.posix.join(conversation.outputDir, conversation.pages[page]) });
       }
     }

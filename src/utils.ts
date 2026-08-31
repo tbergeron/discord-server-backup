@@ -53,9 +53,14 @@ export function escapeHtml(value: string): string {
 }
 
 /** A deliberately small, safe renderer for Discord text; raw HTML is never trusted. */
-export function renderText(value: string): string {
+export function renderText(value: string, rewriteUrl?: (url: string) => string | null): string {
   const escaped = escapeHtml(value);
-  const linked = escaped.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" rel="noreferrer noopener" target="_blank">$1</a>');
+  const linked = escaped.replace(/(https?:\/\/[^\s<]+)/g, (url) => {
+    const localHref = rewriteUrl?.(url);
+    return localHref
+      ? `<a href="${localHref}">${url}</a>`
+      : `<a href="${url}" rel="noreferrer noopener" target="_blank">${url}</a>`;
+  });
   return linked
     .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
     .replace(/`([^`]+)`/g, "<code>$1</code>")
