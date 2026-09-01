@@ -3,7 +3,8 @@
 An archive is a portable directory. All paths below are relative to the archive root. IDs are strings even when they contain only digits; this prevents loss of precision for Discord snowflakes.
 
 ```text
-index.html
+index.html                 # HTML output
+index.md                   # Markdown output
 manifest.json
 export-report.json
 export.log
@@ -14,7 +15,9 @@ assets/
   avatars/<user-id>.png
 channels/<position>-<slug>--<channel-id>/
   index.html
+  index.md
   page-0002.html
+  page-0002.md
   messages-000001.json
   messages-000002.json
   attachments/<message-id>/<attachment-id>--<safe-filename>
@@ -26,7 +29,7 @@ threads/<parent-channel-id>/<slug>--<thread-id>/
 
 ## `manifest.json`
 
-The manifest is written when an export finishes. It has `schemaVersion` (currently `1`), `exporterVersion`, `exportedAt`, the raw Discord `guild` object, and `conversations`. A conversation has its Discord `id`, `kind`, `parentId`, name/type/position, `outputDir`, page/message counts, status, and error when applicable.
+The manifest is written when an export finishes. It has `schemaVersion` (currently `1`), `exporterVersion`, `exportedAt`, `format` (`html` or `markdown`), the raw Discord `guild` object, and `conversations`. A conversation has its Discord `id`, `kind`, `parentId`, name/type/position, `outputDir`, page/message counts, status, and error when applicable.
 
 Consumers must ignore unknown fields so later schema revisions can add metadata safely.
 
@@ -74,4 +77,4 @@ The report is written for both successful and partially successful exports. It c
 
 Version 1 readers should require only fields documented above, preserve ID strings, and ignore unknown fields. Archives are static and self-contained; no network request is required to read stored messages or downloaded attachments.
 
-When rendering HTML, Discord message URLs that point to this archive's guild and to an exported message are rewritten to the matching local HTML page and `#message-<id>` anchor. Links to another server or to an unavailable message remain external Discord URLs.
+When rendering HTML or Markdown, Discord message URLs that point to this archive's guild and to an exported message are rewritten to the matching local page and `#message-<id>` anchor. Links to another server or to an unavailable message remain external Discord URLs.

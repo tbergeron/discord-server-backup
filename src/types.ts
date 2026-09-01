@@ -1,4 +1,5 @@
 export type Snowflake = string;
+export type OutputFormat = "html" | "markdown";
 
 export interface DiscordAttachment {
   id: Snowflake;
@@ -92,6 +93,7 @@ export interface ArchiveManifest {
   schemaVersion: 1;
   exporterVersion: string;
   exportedAt: string;
+  format: OutputFormat;
   guild: Record<string, unknown>;
   conversations: ConversationRecord[];
 }

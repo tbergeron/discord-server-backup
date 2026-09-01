@@ -1,6 +1,6 @@
 # Discord Server Backup
 
-`discord-server-backup` creates a one-time, self-contained archive of a Discord server that an authorized bot can read. It stores the original API payloads, downloads attachments locally, and generates a portable Discord-inspired HTML viewer.
+`discord-server-backup` creates a one-time, self-contained archive of a Discord server that an authorized bot can read. It stores the original API payloads, downloads attachments locally, and generates either a portable Discord-inspired HTML viewer or a Markdown archive.
 
 The archive is designed to be opened by double-clicking `index.html`. It does not run a server, send data to another service, or keep watching the server after the command exits.
 
@@ -27,15 +27,17 @@ The token is read only from `DISCORD_BOT_TOKEN`. Do not put it in a shell script
 
 ```text
 discord-server-backup export --guild <id> --output <directory>
+  [--format html|markdown]
   [--messages-per-file 2000] [--resume]
 ```
 
 - `--guild` is the numeric Discord server ID.
 - `--output` must be a new or empty directory. Existing completed archives are never overwritten.
+- `--format` is `html` by default. Use `markdown` to generate `index.md` plus per-channel/thread Markdown parts instead of the static HTML viewer.
 - `--messages-per-file` defaults to 2,000. Larger conversations are split into chronological `index.html`, `page-0002.html`, and matching JSON pages.
 - `--resume` continues an archive that contains its checkpoint file. It may re-render the static viewer but does not repeat completed conversations.
 
-When successful, open `<output>/index.html` directly in a modern browser. The viewer has a channel sidebar, light/dark toggle, per-channel pagination, inline local media, file cards, and full-text search.
+When using HTML, open `<output>/index.html` directly in a modern browser. The viewer has a channel sidebar, light/dark toggle, per-channel pagination, inline local media, file cards, and full-text search. With `--format markdown`, start at `<output>/index.md`; images are embedded with local Markdown paths and other attachments are local links.
 
 The CLI writes detailed progress to both the terminal and `<output>/export.log`: API discovery, message-history pages, every attachment/avatar download, generated archive parts, checkpoints, and the final issue count. It deliberately never prints the bot token or complete signed attachment URLs. On phones, the archive’s channel list becomes a slide-out drawer opened with **Channels**.
 

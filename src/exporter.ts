@@ -2,15 +2,15 @@ import { access, mkdir, readdir, readFile } from "node:fs/promises";
 import { appendFileSync } from "node:fs";
 import path from "node:path";
 import { DiscordApiError, DiscordClient } from "./discord.js";
-import { renderConversationPage, renderIndex, STYLE_CSS, VIEWER_JS, type RenderContext, type RenderConversation } from "./render.js";
-import type { ArchiveManifest, ConversationRecord, DiscordChannel, DiscordMessage, LocalAttachment, NormalizedMessage } from "./types.js";
+import { renderConversationPage, renderIndex, renderMarkdownConversation, renderMarkdownIndex, STYLE_CSS, VIEWER_JS, type RenderContext, type RenderConversation } from "./render.js";
+import type { ArchiveManifest, ConversationRecord, DiscordChannel, DiscordMessage, LocalAttachment, NormalizedMessage, OutputFormat } from "./types.js";
 import { relativeUrl, safeFilename, slug, writeAtomicJson, writeJson, writeText } from "./utils.js";
 
 const VERSION = "0.1.0";
 const CHECKPOINT_FILE = ".discord-server-backup-checkpoint.json";
 
-interface Checkpoint { schemaVersion: 1; guildId: string; completedConversationIds: string[]; conversations: RenderConversation[]; }
-export interface ExportOptions { guildId: string; output: string; messagesPerFile: number; resume: boolean; token: string; }
+interface Checkpoint { schemaVersion: 1; guildId: string; format?: OutputFormat; completedConversationIds: string[]; conversations: RenderConversation[]; }
+export interface ExportOptions { guildId: string; output: string; format: OutputFormat; messagesPerFile: number; resume: boolean; token: string; }
 interface MentionResolver { roles: Map<string, string>; channels: Map<string, string>; }
 type Log = (message: string) => void;
 
@@ -33,11 +33,15 @@ async function prepareOutput(options: ExportOptions): Promise<Checkpoint> {
     if (!(await exists(checkpointPath))) throw new Error(`Cannot resume: ${checkpointPath} does not exist.`);
     const checkpoint = JSON.parse(await readFile(checkpointPath, "utf8")) as Checkpoint;
     if (checkpoint.guildId !== options.guildId) throw new Error("The checkpoint belongs to a different guild.");
+    const inferredFormat = checkpoint.format ?? (checkpoint.conversations.length > 0 && checkpoint.conversations[0].pages[0]?.endsWith(".md") ? "markdown" : "html");
+    if (inferredFormat !== options.format) throw new Error(`The checkpoint was created for ${inferredFormat} output. Start a new archive for ${options.format} output.`);
+    checkpoint.format = inferredFormat;
+    await writeAtomicJson(checkpointPath, checkpoint);
     return checkpoint;
   }
   if (!(await outputIsEmpty(options.output))) throw new Error(`Output directory is not empty. Choose a new directory or use --resume: ${options.output}`);
   await mkdir(options.output, { recursive: true });
-  const checkpoint: Checkpoint = { schemaVersion: 1, guildId: options.guildId, completedConversationIds: [], conversations: [] };
+  const checkpoint: Checkpoint = { schemaVersion: 1, guildId: options.guildId, format: options.format, completedConversationIds: [], conversations: [] };
   await writeAtomicJson(checkpointPath, checkpoint);
   return checkpoint;
 }
@@ -46,6 +50,11 @@ function outputDirectory(channel: DiscordChannel): string {
   const name = `${slug(channel.name ?? "unnamed")}--${channel.id}`;
   if (isThread(channel)) return path.posix.join("threads", channel.parent_id ?? "unknown-parent", name);
   return path.posix.join("channels", `${String(channel.position ?? 0).padStart(4, "0")}-${name}`);
+}
+
+function outputPages(pageCount: number, format: OutputFormat): string[] {
+  const extension = format === "html" ? "html" : "md";
+  return Array.from({ length: pageCount }, (_, index) => index === 0 ? `index.${extension}` : `page-${String(index + 1).padStart(4, "0")}.${extension}`);
 }
 
 async function listArchived(client: DiscordClient, channel: DiscordChannel, failures: Array<Record<string, unknown>>, log: Log): Promise<DiscordChannel[]> {
@@ -137,7 +146,7 @@ async function normalizeMessage(client: DiscordClient, archiveRoot: string, conv
   };
 }
 
-async function writeConversation(client: DiscordClient, root: string, channel: DiscordChannel, messagesPerFile: number, resolver: MentionResolver, context: RenderContext, failures: Array<Record<string, unknown>>, log: Log): Promise<RenderConversation> {
+async function writeConversation(client: DiscordClient, root: string, channel: DiscordChannel, format: OutputFormat, messagesPerFile: number, resolver: MentionResolver, context: RenderContext, failures: Array<Record<string, unknown>>, log: Log): Promise<RenderConversation> {
   const outputDir = outputDirectory(channel);
   const name = channel.name ?? channel.id;
   log(`Starting ${isThread(channel) ? "thread" : "channel"} #${name} → ${outputDir}`);
@@ -146,7 +155,7 @@ async function writeConversation(client: DiscordClient, root: string, channel: D
   const normalized: NormalizedMessage[] = [];
   for (const message of messages) normalized.push(await normalizeMessage(client, root, outputDir, message, users, resolver, failures));
   const pageCount = Math.max(1, Math.ceil(messages.length / messagesPerFile));
-  const pages = Array.from({ length: pageCount }, (_, index) => index === 0 ? "index.html" : `page-${String(index + 1).padStart(4, "0")}.html`);
+  const pages = outputPages(pageCount, format);
   const record: RenderConversation = { id: channel.id, kind: isThread(channel) ? "thread" : "channel", parentId: channel.parent_id ?? null, name: channel.name ?? `unnamed-${channel.id}`, type: channel.type, position: channel.position ?? 0, outputDir, pageCount, messageCount: messages.length, status: "exported", pages };
   context.conversations.push(record);
   const conversationDir = path.join(root, outputDir);
@@ -155,7 +164,7 @@ async function writeConversation(client: DiscordClient, root: string, channel: D
     const rawPage = messages.slice(start, start + messagesPerFile);
     const normalizedPage = normalized.slice(start, start + messagesPerFile);
     await writeJson(path.join(conversationDir, `messages-${String(index + 1).padStart(6, "0")}.json`), { schemaVersion: 1, conversation: { id: channel.id, name: record.name, type: channel.type, page: index + 1, pageCount }, messages: rawPage.map((raw, rawIndex) => ({ raw, normalized: normalizedPage[rawIndex] })) });
-    await writeText(path.join(conversationDir, pages[index]), renderConversationPage(context, record, index, normalizedPage));
+    await writeText(path.join(conversationDir, pages[index]), format === "html" ? renderConversationPage(context, record, index, normalizedPage) : renderMarkdownConversation(context, record, index, normalizedPage));
     log(`Wrote #${name} archive part ${index + 1}/${pageCount} (${rawPage.length} message(s))`);
   }
   return record;
@@ -174,16 +183,18 @@ export async function exportGuild(options: ExportOptions): Promise<ArchiveManife
   };
   log(`Starting one-time export for guild ${options.guildId}`);
   log(`Output directory: ${options.output}`);
-  log(options.resume ? "Resume mode enabled." : "Creating a new archive.");
+  log(options.resume ? `Resume mode enabled (${options.format} output).` : `Creating a new ${options.format} archive.`);
   const client = new DiscordClient(options.token, log);
   const failures: Array<Record<string, unknown>> = [];
   log("Fetching guild metadata.");
   const guild = await client.getGuild(options.guildId);
   const guildName = typeof guild.name === "string" ? guild.name : options.guildId;
   const context: RenderContext = { root: options.output, guildId: options.guildId, guildName, conversations: checkpoint.conversations ?? [], messageLinks: new Map() };
-  await writeText(path.join(options.output, "assets", "style.css"), STYLE_CSS);
-  await writeText(path.join(options.output, "assets", "viewer.js"), VIEWER_JS);
-  log("Wrote static viewer assets.");
+  if (options.format === "html") {
+    await writeText(path.join(options.output, "assets", "style.css"), STYLE_CSS);
+    await writeText(path.join(options.output, "assets", "viewer.js"), VIEWER_JS);
+    log("Wrote static viewer assets.");
+  }
   const channels = await client.getGuildChannels(options.guildId);
   log(`Found ${channels.length} guild channel(s).`);
   const roles = await client.getGuildRoles(options.guildId).catch((error) => { failures.push({ scope: "roles", error: error instanceof Error ? error.message : String(error) }); return [] as Array<Record<string, unknown>>; });
@@ -202,7 +213,7 @@ export async function exportGuild(options: ExportOptions): Promise<ArchiveManife
   for (const channel of ordered) {
     if (checkpoint.completedConversationIds.includes(channel.id)) { log(`Skipping already-completed #${channel.name ?? channel.id}.`); continue; }
     try {
-      await writeConversation(client, options.output, channel, options.messagesPerFile, resolver, context, failures, log);
+      await writeConversation(client, options.output, channel, options.format, options.messagesPerFile, resolver, context, failures, log);
       checkpoint.completedConversationIds.push(channel.id);
       checkpoint.conversations = context.conversations;
       await writeAtomicJson(path.join(options.output, CHECKPOINT_FILE), checkpoint);
@@ -221,7 +232,7 @@ export async function exportGuild(options: ExportOptions): Promise<ArchiveManife
       for (const item of raw.messages) {
         const text = item.normalized.content;
         context.messageLinks.set(`${item.normalized.channelId}:${item.normalized.id}`, path.posix.join(conversation.outputDir, conversation.pages[page]));
-        search.push({ id: item.normalized.id, channel: conversation.name, author: item.normalized.author.name, text: text.toLowerCase(), excerpt: text.slice(0, 180), path: path.posix.join(conversation.outputDir, conversation.pages[page]) });
+        if (options.format === "html") search.push({ id: item.normalized.id, channel: conversation.name, author: item.normalized.author.name, text: text.toLowerCase(), excerpt: text.slice(0, 180), path: path.posix.join(conversation.outputDir, conversation.pages[page]) });
       }
     }
   }
@@ -229,13 +240,18 @@ export async function exportGuild(options: ExportOptions): Promise<ArchiveManife
   for (const conversation of context.conversations.filter((item) => item.status === "exported")) {
     for (let page = 0; page < conversation.pageCount; page += 1) {
       const raw = JSON.parse(await readFile(path.join(options.output, conversation.outputDir, `messages-${String(page + 1).padStart(6, "0")}.json`), "utf8")) as { messages: Array<{ normalized: NormalizedMessage }> };
-      await writeText(path.join(options.output, conversation.outputDir, conversation.pages[page]), renderConversationPage(context, conversation, page, raw.messages.map((item) => item.normalized)));
+      const messages = raw.messages.map((item) => item.normalized);
+      await writeText(path.join(options.output, conversation.outputDir, conversation.pages[page]), options.format === "html" ? renderConversationPage(context, conversation, page, messages) : renderMarkdownConversation(context, conversation, page, messages));
     }
   }
-  await writeText(path.join(options.output, "assets", "search-index.js"), `window.DISCORD_ARCHIVE_SEARCH=${JSON.stringify(search)};\n`);
-  log(`Wrote search index with ${search.length} message record(s).`);
-  await writeText(path.join(options.output, "index.html"), renderIndex(context));
-  const manifest: ArchiveManifest = { schemaVersion: 1, exporterVersion: VERSION, exportedAt: new Date().toISOString(), guild, conversations: context.conversations.map(({ pages: _pages, ...record }) => record) };
+  if (options.format === "html") {
+    await writeText(path.join(options.output, "assets", "search-index.js"), `window.DISCORD_ARCHIVE_SEARCH=${JSON.stringify(search)};\n`);
+    log(`Wrote search index with ${search.length} message record(s).`);
+    await writeText(path.join(options.output, "index.html"), renderIndex(context));
+  } else {
+    await writeText(path.join(options.output, "index.md"), renderMarkdownIndex(context));
+  }
+  const manifest: ArchiveManifest = { schemaVersion: 1, exporterVersion: VERSION, exportedAt: new Date().toISOString(), format: options.format, guild, conversations: context.conversations.map(({ pages: _pages, ...record }) => record) };
   await writeJson(path.join(options.output, "manifest.json"), manifest);
   await writeJson(path.join(options.output, "export-report.json"), { schemaVersion: 1, exportedAt: manifest.exportedAt, guildId: options.guildId, messageCount: context.conversations.reduce((sum, item) => sum + item.messageCount, 0), conversationCount: context.conversations.length, failures });
   log(`Finished: ${manifest.conversations.filter((item) => item.status === "exported").length} exported conversation(s), ${failures.length} recorded issue(s).`);

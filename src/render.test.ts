@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { renderConversationPage } from "./render.js";
+import { renderConversationPage, renderMarkdownConversation } from "./render.js";
 import type { RenderContext, RenderConversation } from "./render.js";
 import type { NormalizedMessage } from "./types.js";
 
@@ -42,4 +42,13 @@ test("channel renderer emits safe local attachment links and part navigation", (
   assert.match(html, /data-sidebar-toggle/);
   assert.match(html, /archive-sidebar/);
   assert.match(html, /page-0002\.html#message-444/);
+});
+
+test("Markdown renderer emits local media and same-server message anchors", () => {
+  const markdownConversation: RenderConversation = { ...conversation, pages: ["index.md", "page-0002.md"] };
+  const markdownContext: RenderContext = { ...context, conversations: [markdownConversation], messageLinks: new Map([["123456789012345678:444", "channels/0001-general--123456789012345678/page-0002.md"]]) };
+  const markdown = renderMarkdownConversation(markdownContext, markdownConversation, 0, [message]);
+  assert.match(markdown, /!\[photo\.png\]\(attachments\/999999999999999999\/2--photo\.png\)/);
+  assert.match(markdown, /page-0002\.md#message-444/);
+  assert.match(markdown, /<a id="message-999999999999999999"><\/a>/);
 });
